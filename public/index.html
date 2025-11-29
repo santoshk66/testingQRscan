@@ -1,240 +1,346 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>QR Code Scanner (Only QR)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<title>1D Barcode Scanner (Duplicates Counter)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- QR library -->
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<!-- Quagga2 for 1D barcodes -->
+<script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.js"></script>
 
 <style>
-body {
-    margin:0; padding:16px;
-    font-family:system-ui;
-    background:#0f172a;
-    color:#e5e7eb;
-    display:flex; justify-content:center;
-}
-.app { width:100%; max-width:430px; }
-
-h2 { text-align:center; margin-bottom:12px; }
-
-#reader {
-    width:100%;
-    border-radius:10px;
-    overflow:hidden;
-}
-
-.status {
-    margin-top:14px; padding:14px;
-    text-align:center; border-radius:10px;
-    font-weight:700; font-size:16px;
-}
-.ok { background:rgba(34,197,94,0.18); color:#22c55e; }
-.dup { background:rgba(239,68,68,0.18); color:#ef4444; }
-.idle { background:#111827; color:#9ca3af; }
-
-.list {
-    margin-top:18px; font-size:13px;
-    max-height:260px; overflow:auto;
-    background:#111827; padding:10px;
-    border-radius:10px;
-}
-.list div { padding:6px 0; border-bottom:1px solid #1f2937; }
-
-.top-row {
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:8px;
-    font-size:13px;
-}
-.btn-clear {
-    padding:4px 10px;
-    border-radius:999px;
-    border:1px solid #4b5563;
-    background:transparent;
-    color:#9ca3af;
-    cursor:pointer;
-    font-size:11px;
-}
-.btn-clear:hover {
-    background:#020617;
-}
-.counts {
-    display:flex;
-    justify-content:space-between;
-    font-size:12px;
-    color:#9ca3af;
-    margin-top:8px;
-}
-.badge {
-    font-weight:600;
-}
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: system-ui, sans-serif;
+    background: #0f172a;
+    color: #e5e7eb;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 430px;
+  }
+  h2 {
+    margin: 0 0 10px;
+    text-align: center;
+  }
+  #camera {
+    width: 100%;
+    height: 260px;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #interactive video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .btn {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .btn-start {
+    background: #22c55e;
+    color: #022c22;
+  }
+  .btn-stop {
+    background: #ef4444;
+    color: #fff;
+  }
+  .btn-export {
+    margin-top: 10px;
+    width: 100%;
+    padding: 10px 0;
+    border-radius: 999px;
+    border: 1px solid #4b5563;
+    background: #020617;
+    color: #e5e7eb;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .status {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .status-idle {
+    background: #111827;
+    color: #9ca3af;
+  }
+  .status-ok {
+    background: rgba(34, 197, 94, 0.18);
+    color: #22c55e;
+  }
+  .status-dup {
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+  }
+  .status-code {
+    margin-top: 4px;
+    font-size: 14px;
+    word-break: break-all;
+    color: #e5e7eb;
+  }
+  .counts {
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #9ca3af;
+  }
 </style>
 </head>
-
 <body>
 <div class="app">
-  <h2>QR Code Scanner (Only QR)</h2>
+  <h2>1D Barcode Scanner (Duplicates)</h2>
 
-  <div id="reader"></div>
+  <div id="camera">
+    <div id="interactive"></div>
+  </div>
 
-  <div id="statusBox" class="status idle">
-      Scanner Ready
+  <div class="btn-row">
+    <button id="btnStart" class="btn btn-start">Start</button>
+    <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
+  </div>
+
+  <button id="btnCsv" class="btn-export">Download Duplicates CSV</button>
+
+  <div id="statusBox" class="status status-idle">
+    Scanner idle
+    <div id="statusCode" class="status-code">No scan yet.</div>
   </div>
 
   <div class="counts">
-      <div>Total: <span id="totalCount" class="badge">0</span></div>
-      <div>Unique: <span id="uniqueCount" class="badge">0</span></div>
-      <div>Duplicates: <span id="dupCount" class="badge">0</span></div>
-  </div>
-
-  <div class="list" id="scanWrapper">
-      <div class="top-row">
-          <span>Scanned Codes (session)</span>
-          <button id="clearBtn" class="btn-clear">Clear</button>
-      </div>
-      <div id="scanList"></div>
+    <div>Total scans: <b><span id="totalCount">0</span></b></div>
+    <div>Unique: <b><span id="uniqueCount">0</span></b></div>
+    <div>Duplicates: <b><span id="dupCount">0</span></b></div>
   </div>
 </div>
 
 <script>
-// ------- SOUND -------
-function beep(isDup){
+  // ---------- Simple beep ----------
+  function playBeep(isDuplicate) {
     try {
-        const ctx = new (window.AudioContext||window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type="square";
-        osc.frequency.value = isDup ? 350 : 800;
-        osc.connect(gain); gain.connect(ctx.destination);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
-        osc.start(); osc.stop(ctx.currentTime+0.15);
-    } catch(e){}
-}
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = isDuplicate ? 400 : 900;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        ctx.currentTime + 0.18
+      );
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    } catch (e) {
+      // ignore audio errors
+    }
+  }
 
-// ------- VARIABLES -------
-let scanned = [];        // {code, time, isDup}
-let scanSet = new Set();
-let lastCode = "";
-let lastTime = 0;
+  const btnStart = document.getElementById("btnStart");
+  const btnStop = document.getElementById("btnStop");
+  const btnCsv = document.getElementById("btnCsv");
+  const statusBox = document.getElementById("statusBox");
+  const statusCode = document.getElementById("statusCode");
+  const totalCountEl = document.getElementById("totalCount");
+  const uniqueCountEl = document.getElementById("uniqueCount");
+  const dupCountEl = document.getElementById("dupCount");
 
-const totalEl = document.getElementById("totalCount");
-const uniqueEl = document.getElementById("uniqueCount");
-const dupEl = document.getElementById("dupCount");
-const statusBox = document.getElementById("statusBox");
-const scanListEl = document.getElementById("scanList");
-const clearBtn = document.getElementById("clearBtn");
+  let isRunning = false;
+  let counts = {};      // code -> total scan count
+  let lastCode = null;
+  let lastTime = 0;
+  const SAME_CODE_DELAY = 800; // ms
 
-// Load session
-(function loadSession(){
-    const raw = sessionStorage.getItem("qr_scans_v1");
-    if(!raw) return;
+  const STORAGE_KEY = "maizic_1d_counts_v1";
+
+  function loadFromSession() {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
     try {
-        const arr = JSON.parse(raw);
-        if(Array.isArray(arr)){
-            scanned = arr;
-            scanned.forEach(s=>{
-                if(!s.isDup) scanSet.add(s.code);
-            });
-            updateCounts();
-            renderList();
-        }
-    } catch(e){}
-})();
+      counts = JSON.parse(raw) || {};
+    } catch (e) {
+      counts = {};
+    }
+    updateCountsUI();
+  }
 
-function saveSession(){
-    sessionStorage.setItem("qr_scans_v1", JSON.stringify(scanned));
-}
+  function saveToSession() {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(counts));
+  }
 
-function setStatus(text, type){
-    statusBox.className = "status " + type;
-    statusBox.textContent = text;
-}
+  function computeTotals() {
+    let totalScans = 0;
+    let uniqueCodes = 0;
+    let totalDuplicates = 0;
+    for (const code in counts) {
+      const c = counts[code];
+      totalScans += c;
+      uniqueCodes += 1;
+      if (c > 1) totalDuplicates += (c - 1);
+    }
+    return { totalScans, uniqueCodes, totalDuplicates };
+  }
 
-function updateCounts(){
-    const total = scanned.length;
-    const uniques = scanSet.size;
-    const dups = scanned.filter(s=>s.isDup).length;
-    totalEl.textContent = total;
-    uniqueEl.textContent = uniques;
-    dupEl.textContent = dups;
-}
+  function updateCountsUI() {
+    const { totalScans, uniqueCodes, totalDuplicates } = computeTotals();
+    totalCountEl.textContent = totalScans;
+    uniqueCountEl.textContent = uniqueCodes;
+    dupCountEl.textContent = totalDuplicates;
+  }
 
-function renderList(){
-    scanListEl.innerHTML = scanned.map((s,i)=>{
-        const tag = s.isDup ? "DUP" : "NEW";
-        const color = s.isDup ? "#fca5a5" : "#4ade80";
-        return `<div>
-            <strong>${i+1}.</strong> ${s.code}
-            <span style="float:right; color:${color}; font-size:11px;">${tag}</span><br>
-            <span style="font-size:11px; color:#9ca3af;">${s.time}</span>
-        </div>`;
-    }).join("");
-    // auto scroll bottom
-    scanListEl.parentElement.scrollTop = scanListEl.parentElement.scrollHeight;
-}
+  function setStatusIdle() {
+    statusBox.className = "status status-idle";
+    statusBox.firstChild && (statusBox.firstChild.textContent = "Scanner idle");
+    statusCode.textContent = "No scan yet.";
+  }
 
-clearBtn.addEventListener("click", ()=>{
-    if(!confirm("Clear all scanned QR codes for this session?")) return;
-    scanned = [];
-    scanSet = new Set();
-    saveSession();
-    updateCounts();
-    renderList();
-    setStatus("Scanner Ready", "idle");
-});
+  function setStatus(code, isDuplicate) {
+    statusBox.className = "status " + (isDuplicate ? "status-dup" : "status-ok");
+    statusBox.firstChild && (statusBox.firstChild.textContent =
+      isDuplicate ? "Duplicate barcode" : "New barcode");
+    statusCode.textContent = code || "—";
+  }
 
-// ------- QR SCAN HANDLER -------
-function onScanSuccess(qrCodeMessage) {
+  function onDetected(result) {
+    if (!result || !result.codeResult || !result.codeResult.code) return;
     const now = Date.now();
-    const code = qrCodeMessage.trim();
+    const code = result.codeResult.code.trim();
 
-    // debounce same QR multiple frames
-    if(code === lastCode && now - lastTime < 800){
-        return;
+    // debounce same code many times in a row
+    if (lastCode === code && now - lastTime < SAME_CODE_DELAY) {
+      return;
     }
     lastCode = code;
     lastTime = now;
 
-    const isDup = scanSet.has(code);
-    const timeStr = new Date().toLocaleTimeString();
+    // update counts
+    if (!counts[code]) counts[code] = 0;
+    counts[code] += 1;
 
-    scanned.push({ code, time: timeStr, isDup });
-    if(!isDup){
-        scanSet.add(code);
+    const isDuplicate = counts[code] > 1;
+    saveToSession();
+    updateCountsUI();
+    setStatus(code, isDuplicate);
+    playBeep(isDuplicate);
+  }
+
+  function startScanner() {
+    if (isRunning) return;
+    isRunning = true;
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+
+    Quagga.init(
+      {
+        inputStream: {
+          type: "LiveStream",
+          target: document.querySelector("#interactive"),
+          constraints: {
+            facingMode: "environment", // back camera
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        },
+        decoder: {
+          readers: [
+            // ONLY 1D BARCODE TYPES – NO QR
+            "code_128_reader",
+            "code_39_reader",
+            "ean_reader",
+            "ean_8_reader",
+            "upc_reader",
+            "upc_e_reader",
+            "itf_reader"
+          ]
+        },
+        locate: true
+      },
+      function (err) {
+        if (err) {
+          console.error(err);
+          alert("Error initializing scanner: " + err);
+          isRunning = false;
+          btnStart.disabled = false;
+          btnStop.disabled = true;
+          return;
+        }
+        Quagga.start();
+        statusBox.className = "status status-idle";
+        statusBox.firstChild && (statusBox.firstChild.textContent = "Scanning…");
+        statusCode.textContent = "Point camera at 1D barcode.";
+      }
+    );
+
+    Quagga.onDetected(onDetected);
+  }
+
+  function stopScanner() {
+    if (!isRunning) return;
+    isRunning = false;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    try {
+      Quagga.stop();
+      Quagga.offDetected(onDetected);
+    } catch (e) {
+      console.warn("Error stopping Quagga", e);
+    }
+    setStatusIdle();
+  }
+
+  function downloadDuplicatesCsv() {
+    // Build rows only for codes with count > 1
+    const rows = [["barcode", "total_scans", "duplicate_scans"]];
+    for (const code in counts) {
+      const c = counts[code];
+      if (c > 1) {
+        rows.push([code, String(c), String(c - 1)]);
+      }
+    }
+    if (rows.length === 1) {
+      alert("No duplicates to export.");
+      return;
     }
 
-    saveSession();
-    updateCounts();
-    renderList();
+    const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "duplicates.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
-    if(isDup){
-        setStatus("Duplicate: " + code, "dup");
-    } else {
-        setStatus("Unique: " + code, "ok");
-    }
-    beep(isDup);
-}
+  btnStart.addEventListener("click", startScanner);
+  btnStop.addEventListener("click", stopScanner);
+  btnCsv.addEventListener("click", downloadDuplicatesCsv);
 
-// ------- START QR SCANNER -------
-const html5QrCode = new Html5Qrcode("reader");
-
-html5QrCode.start(
-    { facingMode: "environment" },   // back camera
-    { fps: 15, qrbox: 250 },
-    onScanSuccess,
-    (errorMessage) => {
-        // ignore frame errors
-    }
-).catch(err => {
-    setStatus("Camera Error: " + err, "dup");
-    console.error(err);
-});
+  // init
+  loadFromSession();
+  setStatusIdle();
 </script>
-
 </body>
 </html>
