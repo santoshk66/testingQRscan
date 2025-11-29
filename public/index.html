@@ -498,11 +498,6 @@
             advanced.push({ focusMode: focusModeConstraint });
           }
 
-          // (Optional) small zoom in if supported – helps scanner read more clearly
-          if (caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number") {
-            const midZoom = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.3;
-            advanced.push({ zoom: midZoom });
-          }
 
           if (advanced.length) {
             await tracks[0].applyConstraints({ advanced });
