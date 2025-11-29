@@ -318,7 +318,6 @@
   <span id="toastText"></span>
 </div>
 
-<!-- JS -->
 <script>
   /* ================== STATE ================== */
   let codeReader = null;
@@ -334,17 +333,16 @@
   let previousCodesSet = new Set();
   let allBatches = [];
 
-  let duplicateCount = 0;    // how many duplicates we actually added
-  let totalScanCount = 0;    // total scans attempted (all scans)
+  let duplicateCount = 0;    
+  let totalScanCount = 0;    
 
   let pendingDuplicateCode = null;
-  let pendingDuplicateContext = null; // "current" or "previous"
+  let pendingDuplicateContext = null;
 
   const hasNativeDetector = "BarcodeDetector" in window;
   let barcodeDetector = null;
 
-
-  /* ============ STORAGE (sessionStorage) ============ */
+  /* ===== STORAGE ===== */
   function loadBatchesFromStorage() {
     try {
       const raw = sessionStorage.getItem("maizic_batches") || "[]";
@@ -374,23 +372,7 @@
       `Total: ${totalScanCount} | Duplicates: ${duplicateCount} | Batches: ${allBatches.length}`;
   }
 
-  /* ================== AUDIO ================== */
-  function playBeep(type) {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.frequency.value = type === "warning" ? 350 : 900;
-      gain.gain.value = 0.15;
-      osc.start();
-      setTimeout(() => { osc.stop(); ctx.close(); }, 150);
-    } catch {}
-  }
-
-  /* ================== TOAST ================== */
+  /* ===== TOAST ===== */
   let toastTimeout = null;
   function showToast(msg, variant = "success") {
     const el = document.getElementById("toast");
@@ -403,16 +385,16 @@
     }, 2000);
   }
 
-  /* ================== OVERLAY ================== */
+  /* ===== OVERLAY ===== */
   function flashOverlay(type) {
-    const success = document.getElementById("successOverlay");
-    const warning = document.getElementById("warningOverlay");
-    const target = type === "success" ? success : warning;
+    const ok = document.getElementById("successOverlay");
+    const warn = document.getElementById("warningOverlay");
+    const target = type === "success" ? ok : warn;
     target.classList.add("show");
     setTimeout(() => target.classList.remove("show"), 150);
   }
 
-  /* ================== RENDER TABLE ================== */
+  /* ===== RENDER TABLE ===== */
   function renderCurrentBatch() {
     const tbody = document.getElementById("batchTableBody");
     tbody.innerHTML = "";
@@ -442,55 +424,56 @@
     updateCountsBadge();
   }
 
+  /* ===== SCAN HANDLER ===== */
   function existsInCurrentBatch(code) {
     return currentCodesSet.has(code);
   }
-
   function existsInPreviousBatches(code) {
     return previousCodesSet.has(code);
   }
 
-  /* ================== SCAN HANDLER ================== */
   function handleBarcodeScanned(code, format) {
     if (!code) return;
 
     totalScanCount++;
 
-    // 1) Duplicate in current batch -> ask user if want to add or ignore
+    // DUPLICATE IN CURRENT BATCH → ASK USER
     if (existsInCurrentBatch(code)) {
       pendingDuplicateCode = code;
       pendingDuplicateContext = "current";
 
-      const existingCount = currentBatch.filter(b => b.code === code).length;
+      const count = currentBatch.filter(b => b.code === code).length;
       document.getElementById("duplicateModalText").textContent =
-        `Barcode "${code}" is already in this batch (${existingCount} time${
-          existingCount > 1 ? "s" : ""
-        }). Do you want to add it again as another piece or ignore?`;
+        `Barcode "${code}" is already scanned (${count} times). Add again or ignore?`;
 
       document.getElementById("duplicateModalBackdrop").classList.add("show");
-      playBeep("warning");
       flashOverlay("warning");
-      updateCountsBadge();
+      showToast("Duplicate detected", "warning");
       return;
     }
 
-    // 2) Not in current batch, normal add
+    // Add to this batch
     const existedBefore = existsInPreviousBatches(code);
 
-    const newItem = { code, format: format || "native", existedBefore };
-    currentBatch.push(newItem);
+    currentBatch.push({
+      code,
+      format: format || "native",
+      existedBefore
+    });
     currentCodesSet.add(code);
 
     playBeep("success");
     flashOverlay("success");
-    showToast("Scanned: " + code, "success");
+    showToast("Scanned: " + code);
 
-    // 3) If existed in previous batches -> ask if keep/remove
+    // DUPLICATE FROM OLD BATCHES → ASK USER
     if (existedBefore) {
       pendingDuplicateCode = code;
       pendingDuplicateContext = "previous";
+
       document.getElementById("duplicateModalText").textContent =
-        `Barcode "${code}" was already scanned in an earlier batch. Do you want to keep it in the current batch or remove it?`;
+        `Barcode "${code}" was scanned in a previous batch. Keep or remove?`;
+
       document.getElementById("duplicateModalBackdrop").classList.add("show");
       playBeep("warning");
     }
@@ -498,9 +481,8 @@
     renderCurrentBatch();
   }
 
-  /* ================== CAMERA BOOST ================== */
+  /* ===== CAMERA BOOST (NO FLASH) ===== */
   async function applyCameraBoost(track) {
-    // Try to enable continuous focus & low-light help
     try {
       await track.applyConstraints({
         advanced: [
@@ -510,25 +492,20 @@
         ]
       });
     } catch (e) {
-      console.warn("Focus/exposure boost not fully supported:", e);
+      console.warn("Camera boost not fully supported:", e);
     }
 
-    // Try torch if available (on phones)
-    try {
-      await track.applyConstraints({ advanced: [{ torch: true }] });
-    } catch {
-      // ignore if not supported
-    }
-
-    // Re-ping continuous focus every second (helps some devices)
+    // continuous refocus every 1 sec
     setInterval(async () => {
       try {
-        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+        await track.applyConstraints({
+          advanced: [{ focusMode: "continuous" }]
+        });
       } catch {}
     }, 1000);
   }
 
-  /* ================== NATIVE BARCODEDETECTOR ================== */
+  /* ===== NATIVE DETECTOR ===== */
   async function startNativeScanner() {
     const video = document.getElementById("video");
 
@@ -547,28 +524,22 @@
       await video.play();
 
       const track = videoStream.getVideoTracks()[0];
-      if (track) applyCameraBoost(track);
+      applyCameraBoost(track);
 
       const supported = BarcodeDetector.getSupportedFormats();
       const formats = [
-        "code_128",
-        "code_39",
-        "code_93",
-        "ean_13",
-        "ean_8",
-        "upc_a",
-        "upc_e",
+        "code_128", "code_39", "code_93",
+        "ean_13", "ean_8",
+        "upc_a", "upc_e",
         "itf"
       ].filter(f => supported.includes(f));
 
       barcodeDetector = new BarcodeDetector({ formats });
 
       const detectLoop = async () => {
-        if (!barcodeDetector) return;
-
         try {
           const barcodes = await barcodeDetector.detect(video);
-          if (barcodes && barcodes.length > 0) {
+          if (barcodes.length > 0) {
             const first = barcodes[0];
             const value = first.rawValue;
             const now = Date.now();
@@ -577,102 +548,73 @@
               processingLock &&
               value === lastScannedValue &&
               now - lastScanTime < 150
-            ) {
-              // ignore rapid same-frame duplicate
-            } else {
+            ) {} 
+            else {
               processingLock = true;
               lastScannedValue = value;
               lastScanTime = now;
 
-              handleBarcodeScanned(value, first.format || "native");
-              setTimeout(() => { processingLock = false; }, 100);
+              handleBarcodeScanned(value, first.format);
+              setTimeout(() => (processingLock = false), 100);
             }
           }
-        } catch (e) {
-          console.error("BarcodeDetector error:", e);
-        }
+        } catch {}
 
         rafId = requestAnimationFrame(detectLoop);
       };
 
       rafId = requestAnimationFrame(detectLoop);
-    } catch (e) {
-      console.error("Native scanner failed, falling back to ZXing:", e);
-      showToast("Native scanner failed. Using fallback.", "warning");
+    } catch (err) {
+      console.error("Native failed, fallback:", err);
       startZXingScanner();
     }
   }
 
   function stopNativeScanner() {
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-    if (videoStream) {
-      videoStream.getTracks().forEach(t => t.stop());
-      videoStream = null;
-    }
-    const video = document.getElementById("video");
-    if (video) video.srcObject = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (videoStream) videoStream.getTracks().forEach(t => t.stop());
     barcodeDetector = null;
+
+    const v = document.getElementById("video");
+    if (v) v.srcObject = null;
   }
 
-  /* ================== ZXING FALLBACK ================== */
+  /* ===== ZXING FALLBACK ===== */
   async function startZXingScanner() {
     if (codeReader) return;
 
     const hints = new Map();
-    if (ZXing && ZXing.DecodeHintType && ZXing.BarcodeFormat) {
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.CODE_93,
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.ITF
-      ]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      codeReader = new ZXing.BrowserMultiFormatReader(hints);
-    } else {
-      codeReader = new ZXing.BrowserMultiFormatReader();
-    }
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.EAN_13
+    ]);
 
-    try {
-      await codeReader.decodeFromVideoDevice(null, "video", (result) => {
-        if (result) {
-          const now = Date.now();
-          const value = result.getText();
+    codeReader = new ZXing.BrowserMultiFormatReader(hints);
 
-          if (
-            processingLock &&
-            value === lastScannedValue &&
-            now - lastScanTime < 200
-          ) {
-            return;
-          }
+    await codeReader.decodeFromVideoDevice(null, "video", (result) => {
+      if (result) {
+        const now = Date.now();
+        const value = result.getText();
 
-          processingLock = true;
-          lastScannedValue = value;
-          lastScanTime = now;
+        if (
+          processingLock &&
+          value === lastScannedValue &&
+          now - lastScanTime < 200
+        ) return;
 
-          handleBarcodeScanned(
-            value,
-            result.getBarcodeFormat && result.getBarcodeFormat()
-          );
+        processingLock = true;
+        lastScannedValue = value;
+        lastScanTime = now;
 
-          setTimeout(() => { processingLock = false; }, 130);
-        }
-      });
-    } catch (e) {
-      console.error(e);
-      showToast("Could not start camera. Check permissions.", "error");
-      if (codeReader) {
-        codeReader.reset();
-        codeReader = null;
+        handleBarcodeScanned(
+          value,
+          result.getBarcodeFormat && result.getBarcodeFormat()
+        );
+
+        setTimeout(() => (processingLock = false), 130);
       }
-    }
+    });
   }
 
   function stopZXingScanner() {
@@ -682,26 +624,24 @@
     }
   }
 
-  /* ================== PUBLIC CAMERA API ================== */
+  /* ===== CAMERA BUTTONS ===== */
   async function startCamera() {
     document.getElementById("startCameraBtn").disabled = true;
     document.getElementById("stopCameraBtn").disabled = false;
 
-    if (hasNativeDetector && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      await startNativeScanner();
-    } else {
-      await startZXingScanner();
-    }
+    if (hasNativeDetector) startNativeScanner();
+    else startZXingScanner();
   }
 
   function stopCamera() {
     stopNativeScanner();
     stopZXingScanner();
+
     document.getElementById("startCameraBtn").disabled = false;
     document.getElementById("stopCameraBtn").disabled = true;
   }
 
-  /* ================== FINISH BATCH ================== */
+  /* ===== FINISH BATCH ===== */
   function openFinishModal() {
     if (!currentBatch.length) {
       showToast("Scan at least one barcode.", "warning");
@@ -713,12 +653,12 @@
 
   function saveCurrentBatch() {
     const partner = document.getElementById("partnerSelect").value;
-    const scannerName = document.getElementById("scannerName").value.trim();
-
     if (!partner) {
-      showToast("Select a delivery partner.", "warning");
+      showToast("Select delivery partner.", "warning");
       return;
     }
+
+    const scannerName = document.getElementById("scannerName").value.trim();
 
     const newBatch = {
       id: "batch_" + Date.now(),
@@ -727,31 +667,25 @@
       createdAt: new Date().toISOString(),
       barcodes: currentBatch
     };
-    allBatches.push(newBatch);
 
-    // add codes to previous set
-    for (const b of currentBatch) {
-      if (b && b.code) previousCodesSet.add(b.code);
-    }
+    allBatches.push(newBatch);
+    for (const b of currentBatch) previousCodesSet.add(b.code);
 
     saveBatchesToStorage();
 
-    // reset current batch stats
     currentBatch = [];
     currentCodesSet.clear();
     duplicateCount = 0;
     totalScanCount = 0;
 
     document.getElementById("finishModalBackdrop").classList.remove("show");
-    showToast("Batch saved successfully.", "success");
+    showToast("Batch saved.", "success");
     renderCurrentBatch();
   }
 
-  /* ================== CLEAR SESSION ================== */
+  /* ===== CLEAR SESSION ===== */
   function clearSession() {
-    sessionStorage.removeItem("maizic_batches");
-    sessionStorage.removeItem("maizic_scanner_name");
-
+    sessionStorage.clear();
     allBatches = [];
     previousCodesSet.clear();
     currentBatch = [];
@@ -761,37 +695,20 @@
 
     document.getElementById("scannerName").value = "";
     renderCurrentBatch();
-    showToast("Session cleared.", "success");
+    showToast("Session cleared.");
   }
 
-  /* ================== EVENTS ================== */
-  document.getElementById("startCameraBtn").addEventListener("click", startCamera);
-  document.getElementById("stopCameraBtn").addEventListener("click", stopCamera);
-  document.getElementById("finishBatchBtn").addEventListener("click", openFinishModal);
-  document.getElementById("clearSessionBtn").addEventListener("click", clearSession);
-
-  document.getElementById("finishCancelBtn").addEventListener("click", () => {
-    document.getElementById("finishModalBackdrop").classList.remove("show");
-  });
-  document.getElementById("finishConfirmBtn").addEventListener("click", saveCurrentBatch);
-
-  // Duplicate modal buttons (current + previous logic)
+  /* ===== DUPLICATE MODAL ===== */
   document.getElementById("duplicateCancelBtn").addEventListener("click", () => {
-    if (!pendingDuplicateCode) {
-      document.getElementById("duplicateModalBackdrop").classList.remove("show");
-      return;
-    }
+    if (!pendingDuplicateCode) return;
 
     if (pendingDuplicateContext === "previous") {
-      // remove the already-added item from current batch
+      // remove from current batch (it was already added once)
       currentBatch = currentBatch.filter(b => b.code !== pendingDuplicateCode);
-      if (!currentBatch.some(b => b.code === pendingDuplicateCode)) {
-        currentCodesSet.delete(pendingDuplicateCode);
-      }
-      showToast("Removed from current batch.", "warning");
-    } else if (pendingDuplicateContext === "current") {
-      // simply ignore this scan
-      showToast("Duplicate ignored.", "warning");
+      currentCodesSet.delete(pendingDuplicateCode);
+      showToast("Removed from batch", "warning");
+    } else {
+      showToast("Ignored duplicate", "warning");
     }
 
     pendingDuplicateCode = null;
@@ -801,27 +718,18 @@
   });
 
   document.getElementById("duplicateAddBtn").addEventListener("click", () => {
-    if (!pendingDuplicateCode) {
-      document.getElementById("duplicateModalBackdrop").classList.remove("show");
-      return;
-    }
+    if (!pendingDuplicateCode) return;
 
-    if (pendingDuplicateContext === "previous") {
-      // it was already added; just count it as duplicate kept
-      duplicateCount++;
-      showToast("Duplicate kept in current batch.", "success");
-    } else if (pendingDuplicateContext === "current") {
-      // Add another row for same barcode
+    if (pendingDuplicateContext === "current") {
       const existing = currentBatch.find(b => b.code === pendingDuplicateCode);
       if (existing) {
-        currentBatch.push({
-          code: existing.code,
-          format: existing.format,
-          existedBefore: existing.existedBefore
-        });
+        currentBatch.push({ ...existing });
         duplicateCount++;
-        showToast("Duplicate added as another piece.", "success");
+        showToast("Duplicate added again", "success");
       }
+    } else {
+      duplicateCount++;
+      showToast("Duplicate kept", "success");
     }
 
     pendingDuplicateCode = null;
@@ -830,12 +738,7 @@
     renderCurrentBatch();
   });
 
-  // Store scanner name
-  document.getElementById("scannerName").addEventListener("input", (e) => {
-    sessionStorage.setItem("maizic_scanner_name", e.target.value.trim());
-  });
-
-  /* ================== INIT ================== */
+  /* ===== INIT ===== */
   (function init() {
     loadBatchesFromStorage();
 
@@ -844,6 +747,7 @@
 
     totalScanCount = 0;
     duplicateCount = 0;
+
     renderCurrentBatch();
   })();
 </script>
