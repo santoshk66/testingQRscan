@@ -5,7 +5,7 @@
 <title>1D Barcode Scanner (Duplicates)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- Quagga2 for 1D barcodes -->
+<!-- Quagga2 for barcode scanning -->
 <script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.js"></script>
 
 <style>
@@ -119,7 +119,7 @@
     <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
   </div>
 
-  <button id="btnCsv" class="btn-secondary">Download Duplicates CSV</button>
+  <button id="btnShowDup" class="btn-secondary">Show Duplicate Codes</button>
   <button id="btnClear" class="btn-secondary">Clear All</button>
 
   <div id="statusBox" class="status status-idle">
@@ -128,7 +128,7 @@
   </div>
 
   <div class="counts">
-    <div>Total codes: <b><span id="totalCount">0</span></b></div>
+    <div>Total barcodes: <b><span id="totalCount">0</span></b></div>
     <div>Unique: <b><span id="uniqueCount">0</span></b></div>
     <div>Duplicates: <b><span id="dupCount">0</span></b></div>
   </div>
@@ -158,26 +158,32 @@
   }
 
   const btnStart = document.getElementById("btnStart");
-  const btnStop = document.getElementById("btnStop");
-  const btnCsv = document.getElementById("btnCsv");
+  const btnStop  = document.getElementById("btnStop");
+  const btnShowDup = document.getElementById("btnShowDup");
   const btnClear = document.getElementById("btnClear");
-  const statusBox = document.getElementById("statusBox");
+
+  const statusBox  = document.getElementById("statusBox");
   const statusMain = document.getElementById("statusMain");
   const statusCode = document.getElementById("statusCode");
-  const totalCountEl = document.getElementById("totalCount");
+
+  const totalCountEl  = document.getElementById("totalCount");
   const uniqueCountEl = document.getElementById("uniqueCount");
-  const dupCountEl = document.getElementById("dupCount");
+  const dupCountEl    = document.getElementById("dupCount");
 
   let isRunning = false;
-  // counts[code] = how many times we accepted this code:
-  // 0 => not present, 1 => first time (unique), 2 => first duplicate
-  // >2 are ignored (not counted / no beep / no status)
+
+  // counts[code] = accepted scans:
+  // 0 or undefined => never scanned
+  // 1 => first time (unique)
+  // 2 => one duplicate (second time)
+  // >2 => we ignore further scans for this code
   let counts = {};
+
   let lastCode = null;
   let lastTime = 0;
   const SAME_CODE_DELAY = 800; // ms
 
-  const STORAGE_KEY = "maizic_1d_counts_v2";
+  const STORAGE_KEY = "maizic_1d_counts_v3";
 
   function loadFromSession() {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -194,27 +200,24 @@
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(counts));
   }
 
-  // We treat "total codes" as number of distinct barcodes,
-  // "unique" = codes with count===1,
-  // "duplicates" = codes with count>=2 (we cap at 2).
   function computeTotals() {
-    const codes = Object.keys(counts);
-    const totalCodes = codes.length;
+    const keys = Object.keys(counts);
+    const totalBarcodes = keys.length;
     let unique = 0;
     let dups = 0;
-    codes.forEach(code => {
+    keys.forEach(code => {
       const c = counts[code];
       if (c === 1) unique++;
-      else if (c >= 2) dups++; // we never let it go above 2
+      else if (c >= 2) dups++;
     });
-    return { totalCodes, unique, dups };
+    return { totalBarcodes, unique, dups };
   }
 
   function updateCountsUI() {
-    const { totalCodes, unique, dups } = computeTotals();
-    totalCountEl.textContent = totalCodes;
+    const { totalBarcodes, unique, dups } = computeTotals();
+    totalCountEl.textContent  = totalBarcodes;
     uniqueCountEl.textContent = unique;
-    dupCountEl.textContent = dups;
+    dupCountEl.textContent    = dups;
   }
 
   function setStatusIdle() {
@@ -231,10 +234,11 @@
 
   function onDetected(result) {
     if (!result || !result.codeResult || !result.codeResult.code) return;
+
     const now = Date.now();
     const code = result.codeResult.code.trim();
 
-    // Debounce same code many times in a row (while camera stays on it)
+    // debounce same code in continuous frames
     if (lastCode === code && now - lastTime < SAME_CODE_DELAY) {
       return;
     }
@@ -243,14 +247,13 @@
 
     const prev = counts[code] || 0;
 
-    // If already counted as duplicate once (prev >= 2), ignore.
-    // No beep, no UI update, no count.
+    // already counted duplicate once -> ignore extra
     if (prev >= 2) {
       return;
     }
 
-    // First time scan
     if (prev === 0) {
+      // first time -> unique
       counts[code] = 1;
       saveToSession();
       updateCountsUI();
@@ -259,8 +262,8 @@
       return;
     }
 
-    // Second time scan -> first duplicate (we count exactly once)
     if (prev === 1) {
+      // second time -> first duplicate
       counts[code] = 2;
       saveToSession();
       updateCountsUI();
@@ -274,7 +277,12 @@
     if (isRunning) return;
     isRunning = true;
     btnStart.disabled = true;
-    btnStop.disabled = false;
+    btnStop.disabled  = false;
+
+    // remove old listeners before init
+    try {
+      Quagga.offDetected(onDetected);
+    } catch (e) {}
 
     Quagga.init(
       {
@@ -282,24 +290,30 @@
           type: "LiveStream",
           target: document.querySelector("#interactive"),
           constraints: {
-            facingMode: "environment", // back camera
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            facingMode: "environment",
+            width:  { ideal: 1280 },
+            height: { ideal: 720 },
+            aspectRatio: { ideal: 1.777 },
+            // Hint to browser for continuous / fast focus (not all browsers obey)
+            advanced: [{ focusMode: "continuous" }]
           }
         },
         decoder: {
           readers: [
-            // ONLY 1D BARCODE TYPES – NO QR
+            // ONLY 1D readers that exist in Quagga2
             "code_128_reader",
             "code_39_reader",
             "ean_reader",
             "ean_8_reader",
             "upc_reader",
             "upc_e_reader",
-            "itf_reader"
+            "codabar_reader"
           ]
         },
-        locate: true
+        locate: true,
+        numOfWorkers: navigator.hardwareConcurrency
+          ? Math.min(4, navigator.hardwareConcurrency)
+          : 2
       },
       function (err) {
         if (err) {
@@ -314,17 +328,16 @@
         statusBox.className = "status status-idle";
         statusMain.textContent = "Scanning…";
         statusCode.textContent = "Point camera at 1D barcode.";
+        Quagga.onDetected(onDetected);
       }
     );
-
-    Quagga.onDetected(onDetected);
   }
 
   function stopScanner() {
     if (!isRunning) return;
     isRunning = false;
     btnStart.disabled = false;
-    btnStop.disabled = true;
+    btnStop.disabled  = true;
     try {
       Quagga.stop();
       Quagga.offDetected(onDetected);
@@ -334,31 +347,14 @@
     setStatusIdle();
   }
 
-  function downloadDuplicatesCsv() {
-    const rows = [["barcode", "scan_count"]];
-    for (const code in counts) {
-      const c = counts[code];
-      if (c >= 2) {
-        rows.push([code, String(c)]);
-      }
-    }
-    if (rows.length === 1) {
-      alert("No duplicates to export.");
+  function showDuplicateCodes() {
+    const dups = Object.keys(counts).filter(code => counts[code] >= 2);
+    if (!dups.length) {
+      alert("No duplicate barcodes yet.");
       return;
     }
-
-    const csv = rows
-      .map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "duplicates.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const lines = dups.map(code => `${code} (scan count: ${counts[code]})`);
+    alert("Duplicate barcodes:\n\n" + lines.join("\n"));
   }
 
   function clearAll() {
@@ -370,9 +366,9 @@
   }
 
   btnStart.addEventListener("click", startScanner);
-  btnStop.addEventListener("click", stopScanner);
-  btnCsv.addEventListener("click", downloadDuplicatesCsv);
-  btnClear.addEventListener("click", clearAll);
+  btnStop.addEventListener("click",  stopScanner);
+  btnShowDup.addEventListener("click", showDuplicateCodes);
+  btnClear.addEventListener("click",   clearAll);
 
   // init
   loadFromSession();
