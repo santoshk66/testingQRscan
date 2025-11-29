@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>1D Barcode Scanner (Duplicates Counter)</title>
+<title>1D Barcode Scanner (Duplicates)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <!-- Quagga2 for 1D barcodes -->
@@ -60,7 +60,7 @@
     background: #ef4444;
     color: #fff;
   }
-  .btn-export {
+  .btn-secondary {
     margin-top: 10px;
     width: 100%;
     padding: 10px 0;
@@ -119,15 +119,16 @@
     <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
   </div>
 
-  <button id="btnCsv" class="btn-export">Download Duplicates CSV</button>
+  <button id="btnCsv" class="btn-secondary">Download Duplicates CSV</button>
+  <button id="btnClear" class="btn-secondary">Clear All</button>
 
   <div id="statusBox" class="status status-idle">
-    Scanner idle
+    <div id="statusMain">Scanner idle</div>
     <div id="statusCode" class="status-code">No scan yet.</div>
   </div>
 
   <div class="counts">
-    <div>Total scans: <b><span id="totalCount">0</span></b></div>
+    <div>Total codes: <b><span id="totalCount">0</span></b></div>
     <div>Unique: <b><span id="uniqueCount">0</span></b></div>
     <div>Duplicates: <b><span id="dupCount">0</span></b></div>
   </div>
@@ -159,19 +160,24 @@
   const btnStart = document.getElementById("btnStart");
   const btnStop = document.getElementById("btnStop");
   const btnCsv = document.getElementById("btnCsv");
+  const btnClear = document.getElementById("btnClear");
   const statusBox = document.getElementById("statusBox");
+  const statusMain = document.getElementById("statusMain");
   const statusCode = document.getElementById("statusCode");
   const totalCountEl = document.getElementById("totalCount");
   const uniqueCountEl = document.getElementById("uniqueCount");
   const dupCountEl = document.getElementById("dupCount");
 
   let isRunning = false;
-  let counts = {};      // code -> total scan count
+  // counts[code] = how many times we accepted this code:
+  // 0 => not present, 1 => first time (unique), 2 => first duplicate
+  // >2 are ignored (not counted / no beep / no status)
+  let counts = {};
   let lastCode = null;
   let lastTime = 0;
   const SAME_CODE_DELAY = 800; // ms
 
-  const STORAGE_KEY = "maizic_1d_counts_v1";
+  const STORAGE_KEY = "maizic_1d_counts_v2";
 
   function loadFromSession() {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -188,36 +194,38 @@
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(counts));
   }
 
+  // We treat "total codes" as number of distinct barcodes,
+  // "unique" = codes with count===1,
+  // "duplicates" = codes with count>=2 (we cap at 2).
   function computeTotals() {
-    let totalScans = 0;
-    let uniqueCodes = 0;
-    let totalDuplicates = 0;
-    for (const code in counts) {
+    const codes = Object.keys(counts);
+    const totalCodes = codes.length;
+    let unique = 0;
+    let dups = 0;
+    codes.forEach(code => {
       const c = counts[code];
-      totalScans += c;
-      uniqueCodes += 1;
-      if (c > 1) totalDuplicates += (c - 1);
-    }
-    return { totalScans, uniqueCodes, totalDuplicates };
+      if (c === 1) unique++;
+      else if (c >= 2) dups++; // we never let it go above 2
+    });
+    return { totalCodes, unique, dups };
   }
 
   function updateCountsUI() {
-    const { totalScans, uniqueCodes, totalDuplicates } = computeTotals();
-    totalCountEl.textContent = totalScans;
-    uniqueCountEl.textContent = uniqueCodes;
-    dupCountEl.textContent = totalDuplicates;
+    const { totalCodes, unique, dups } = computeTotals();
+    totalCountEl.textContent = totalCodes;
+    uniqueCountEl.textContent = unique;
+    dupCountEl.textContent = dups;
   }
 
   function setStatusIdle() {
     statusBox.className = "status status-idle";
-    statusBox.firstChild && (statusBox.firstChild.textContent = "Scanner idle");
+    statusMain.textContent = "Scanner idle";
     statusCode.textContent = "No scan yet.";
   }
 
   function setStatus(code, isDuplicate) {
     statusBox.className = "status " + (isDuplicate ? "status-dup" : "status-ok");
-    statusBox.firstChild && (statusBox.firstChild.textContent =
-      isDuplicate ? "Duplicate barcode" : "New barcode");
+    statusMain.textContent = isDuplicate ? "Duplicate barcode" : "New barcode";
     statusCode.textContent = code || "—";
   }
 
@@ -226,22 +234,40 @@
     const now = Date.now();
     const code = result.codeResult.code.trim();
 
-    // debounce same code many times in a row
+    // Debounce same code many times in a row (while camera stays on it)
     if (lastCode === code && now - lastTime < SAME_CODE_DELAY) {
       return;
     }
     lastCode = code;
     lastTime = now;
 
-    // update counts
-    if (!counts[code]) counts[code] = 0;
-    counts[code] += 1;
+    const prev = counts[code] || 0;
 
-    const isDuplicate = counts[code] > 1;
-    saveToSession();
-    updateCountsUI();
-    setStatus(code, isDuplicate);
-    playBeep(isDuplicate);
+    // If already counted as duplicate once (prev >= 2), ignore.
+    // No beep, no UI update, no count.
+    if (prev >= 2) {
+      return;
+    }
+
+    // First time scan
+    if (prev === 0) {
+      counts[code] = 1;
+      saveToSession();
+      updateCountsUI();
+      setStatus(code, false);
+      playBeep(false);
+      return;
+    }
+
+    // Second time scan -> first duplicate (we count exactly once)
+    if (prev === 1) {
+      counts[code] = 2;
+      saveToSession();
+      updateCountsUI();
+      setStatus(code, true);
+      playBeep(true);
+      return;
+    }
   }
 
   function startScanner() {
@@ -286,7 +312,7 @@
         }
         Quagga.start();
         statusBox.className = "status status-idle";
-        statusBox.firstChild && (statusBox.firstChild.textContent = "Scanning…");
+        statusMain.textContent = "Scanning…";
         statusCode.textContent = "Point camera at 1D barcode.";
       }
     );
@@ -309,12 +335,11 @@
   }
 
   function downloadDuplicatesCsv() {
-    // Build rows only for codes with count > 1
-    const rows = [["barcode", "total_scans", "duplicate_scans"]];
+    const rows = [["barcode", "scan_count"]];
     for (const code in counts) {
       const c = counts[code];
-      if (c > 1) {
-        rows.push([code, String(c), String(c - 1)]);
+      if (c >= 2) {
+        rows.push([code, String(c)]);
       }
     }
     if (rows.length === 1) {
@@ -322,7 +347,9 @@
       return;
     }
 
-    const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = rows
+      .map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -334,9 +361,18 @@
     URL.revokeObjectURL(url);
   }
 
+  function clearAll() {
+    if (!confirm("Clear all scanned barcodes for this session?")) return;
+    counts = {};
+    saveToSession();
+    updateCountsUI();
+    setStatusIdle();
+  }
+
   btnStart.addEventListener("click", startScanner);
   btnStop.addEventListener("click", stopScanner);
   btnCsv.addEventListener("click", downloadDuplicatesCsv);
+  btnClear.addEventListener("click", clearAll);
 
   // init
   loadFromSession();
