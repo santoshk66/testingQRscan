@@ -1,378 +1,697 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>1D Barcode Scanner (Duplicates)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" />
+  <title>Maizic – Barcode Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<!-- Quagga2 for barcode scanning -->
-<script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.js"></script>
+  <!-- Styles merged from style.css -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-<style>
-  body {
-    margin: 0;
-    padding: 16px;
-    font-family: system-ui, sans-serif;
-    background: #0f172a;
-    color: #e5e7eb;
-    display: flex;
-    justify-content: center;
-  }
-  .app {
-    width: 100%;
-    max-width: 430px;
-  }
-  h2 {
-    margin: 0 0 10px;
-    text-align: center;
-  }
-  #camera {
-    width: 100%;
-    height: 260px;
-    background: #000;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  #interactive video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .btn-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .btn {
-    flex: 1;
-    padding: 10px 0;
-    border-radius: 999px;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .btn-start {
-    background: #22c55e;
-    color: #022c22;
-  }
-  .btn-stop {
-    background: #ef4444;
-    color: #fff;
-  }
-  .btn-secondary {
-    margin-top: 10px;
-    width: 100%;
-    padding: 10px 0;
-    border-radius: 999px;
-    border: 1px solid #4b5563;
-    background: #020617;
-    color: #e5e7eb;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .status {
-    margin-top: 12px;
-    padding: 12px;
-    border-radius: 10px;
-    text-align: center;
-    font-weight: 700;
-    font-size: 16px;
-  }
-  .status-idle {
-    background: #111827;
-    color: #9ca3af;
-  }
-  .status-ok {
-    background: rgba(34, 197, 94, 0.18);
-    color: #22c55e;
-  }
-  .status-dup {
-    background: rgba(239, 68, 68, 0.18);
-    color: #ef4444;
-  }
-  .status-code {
-    margin-top: 4px;
-    font-size: 14px;
-    word-break: break-all;
-    color: #e5e7eb;
-  }
-  .counts {
-    margin-top: 10px;
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    color: #9ca3af;
-  }
-</style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:#0f172a;
+      color:#e5e7eb;
+      min-height:100vh;
+      padding:16px;
+    }
+
+    .app {
+      max-width:960px;
+      margin:0 auto;
+      background:#020617;
+      border-radius:12px;
+      padding:16px;
+      box-shadow:0 10px 40px rgba(0,0,0,.6);
+    }
+
+    h1 { font-size:1.4rem; margin-bottom:8px; }
+    .subtitle {
+      font-size:.8rem;
+      color:#9ca3af;
+      margin-bottom:10px;
+    }
+
+    .row { display:flex; flex-wrap:wrap; gap:16px; }
+    .col { flex:1 1 280px; }
+
+    .controls-row { margin-bottom:10px; }
+    .col-actions {
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-end;
+    }
+
+    label {
+      font-size:.85rem;
+      color:#9ca3af;
+      display:block;
+      margin-bottom:4px;
+    }
+    input, select {
+      width:100%;
+      border-radius:8px;
+      border:1px solid #1f2937;
+      padding:8px 10px;
+      background:#020617;
+      color:#e5e7eb;
+      outline:none;
+    }
+    input:focus, select:focus { border-color:#22c55e; }
+
+    .btn {
+      border:none;
+      border-radius:999px;
+      padding:8px 14px;
+      font-size:.9rem;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      margin-right:8px;
+      margin-top:8px;
+    }
+    .btn-primary { background:#22c55e; color:#022c22; }
+    .btn-danger  { background:#ef4444; color:#fef2f2; }
+    .btn-ghost   { background:transparent; border:1px solid #4b5563; color:#e5e7eb; }
+    .btn[disabled] { opacity:.5; cursor:not-allowed; }
+
+    .video-wrapper {
+      position:relative;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid #111827;
+      background:#020617;
+    }
+    video {
+      width:100%;
+      max-height:320px;
+      object-fit:cover;
+      background:black;
+    }
+    .overlay-flash {
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .15s linear;
+      font-size:3rem;
+    }
+    .overlay-success { background:rgba(34,197,94,.25); color:#bbf7d0; }
+    .overlay-warning { background:rgba(248,113,113,.25); color:#fee2e2; }
+    .overlay-flash.show { opacity:1; }
+
+    .batch-section { margin-top:14px; }
+    h2 { margin:10px 0 6px; font-size:1rem; }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:.8rem;
+      margin-top:6px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid #111827;
+    }
+    thead { background:#020617; }
+    th, td {
+      padding:6px 8px;
+      border-bottom:1px solid #111827;
+      text-align:left;
+      word-break:break-all;
+    }
+    tbody tr:nth-child(even) { background:#020617; }
+    .empty-row { text-align:center; color:#6b7280; }
+
+    .tag {
+      display:inline-flex;
+      padding:2px 6px;
+      border-radius:999px;
+      font-size:.7rem;
+      background:#0f172a;
+      color:#9ca3af;
+    }
+    .tag-dup { background:#450a0a; color:#fecaca; }
+
+    .badge {
+      display:inline-flex;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:.75rem;
+      background:#0f172a;
+      color:#9ca3af;
+      margin-top:4px;
+    }
+
+    /* Toast */
+    .toast {
+      position:fixed;
+      left:50%;
+      transform:translateX(-50%);
+      bottom:16px;
+      background:#111827;
+      border-radius:999px;
+      padding:8px 14px;
+      box-shadow:0 10px 30px rgba(0,0,0,.6);
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:.8rem;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .15s ease-in-out, transform .15s ease-in-out;
+      z-index:40;
+    }
+    .toast.show {
+      opacity:1;
+      pointer-events:auto;
+      transform:translateX(-50%) translateY(-4px);
+    }
+    .toast-success { border:1px solid #22c55e; }
+    .toast-warning { border:1px solid #f97316; }
+    .toast-error   { border:1px solid #ef4444; }
+
+    /* Modal */
+    .modal-backdrop {
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,.8);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:30;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .15s ease-in-out;
+    }
+    .modal-backdrop.show {
+      opacity:1;
+      pointer-events:auto;
+    }
+    .modal {
+      background:#020617;
+      border-radius:12px;
+      padding:16px;
+      max-width:360px;
+      width:100%;
+      border:1px solid #1f2937;
+    }
+    .modal h3 { font-size:1rem; margin-bottom:8px; }
+    .modal p  { font-size:.8rem; color:#9ca3af; margin-bottom:10px; }
+    .modal-actions {
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:8px;
+    }
+  </style>
+
+  <!-- ZXing library for camera-based barcode scanning -->
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
 </head>
 <body>
 <div class="app">
-  <h2>1D Barcode Scanner (Duplicates)</h2>
+  <h1>Maizic – Camera Barcode Scanner</h1>
+  <p class="subtitle">
+    Scan labels using your camera, build a batch, detect duplicates, and assign to a delivery partner.
+    Data is stored locally in your browser (localStorage).
+  </p>
 
-  <div id="camera">
-    <div id="interactive"></div>
+  <!-- Controls -->
+  <div class="row controls-row">
+    <div class="col">
+      <label for="scannerName">Scanner Name (required)</label>
+      <input id="scannerName" type="text" placeholder="e.g. Akash / Scanner 1" />
+      <span class="badge" id="batchInfoBadge">Saved batches: 0</span>
+    </div>
+
+    <div class="col col-actions">
+      <div>
+        <button class="btn btn-primary" id="startCameraBtn">▶ Start Camera</button>
+        <button class="btn btn-danger" id="stopCameraBtn" disabled>■ Stop</button>
+        <button class="btn btn-ghost" id="finishBatchBtn" disabled>
+          ✓ Finish &amp; Assign Delivery
+        </button>
+      </div>
+    </div>
   </div>
 
-  <div class="btn-row">
-    <button id="btnStart" class="btn btn-start">Start</button>
-    <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
+  <!-- Video + overlay -->
+  <div class="video-wrapper">
+    <video id="video" muted playsinline></video>
+    <div id="successOverlay" class="overlay-flash overlay-success">✔</div>
+    <div id="warningOverlay" class="overlay-flash overlay-warning">!</div>
   </div>
 
-  <button id="btnShowDup" class="btn-secondary">Show Duplicate Codes</button>
-  <button id="btnClear" class="btn-secondary">Clear All</button>
-
-  <div id="statusBox" class="status status-idle">
-    <div id="statusMain">Scanner idle</div>
-    <div id="statusCode" class="status-code">No scan yet.</div>
-  </div>
-
-  <div class="counts">
-    <div>Total barcodes: <b><span id="totalCount">0</span></b></div>
-    <div>Unique: <b><span id="uniqueCount">0</span></b></div>
-    <div>Duplicates: <b><span id="dupCount">0</span></b></div>
+  <!-- Current batch -->
+  <div class="batch-section">
+    <h2>Current Batch (<span id="batchCount">0</span>)</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>#</th>
+        <th>Barcode</th>
+        <th>Format</th>
+        <th>Previous Batch?</th>
+      </tr>
+      </thead>
+      <tbody id="batchTableBody">
+      <tr><td colspan="4" class="empty-row">No barcodes scanned yet.</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
+<!-- Duplicate cross-batch modal -->
+<div id="duplicateModalBackdrop" class="modal-backdrop">
+  <div class="modal">
+    <h3>Duplicate Found in Previous Batch</h3>
+    <p id="duplicateModalText"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="duplicateCancelBtn">Cancel (Remove)</button>
+      <button class="btn btn-primary" id="duplicateAddBtn">Add Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- Finish batch modal -->
+<div id="finishModalBackdrop" class="modal-backdrop">
+  <div class="modal">
+    <h3>Assign Delivery Partner</h3>
+    <p>Select the delivery partner for this batch.</p>
+    <label for="partnerSelect">Delivery Partner</label>
+    <select id="partnerSelect">
+      <option value="">-- Select --</option>
+      <option value="Flipkart">Flipkart</option>
+      <option value="Amazon">Amazon</option>
+      <option value="DTDC">DTDC</option>
+      <option value="BlueDart">BlueDart</option>
+      <option value="Other">Other</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="finishCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="finishConfirmBtn">Save Batch</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast">
+  <span id="toastText"></span>
+</div>
+
+<!-- Main JS merged from main.js -->
 <script>
-  // ---------- Simple beep ----------
-  function playBeep(isDuplicate) {
+  // ====== STATE ======
+  let codeReader = null;         // ZXing instance (fallback)
+  let videoStream = null;        // MediaStream for native detector
+  let rafId = null;              // requestAnimationFrame id
+
+  let processingLock = false;
+  let lastScannedValue = null;
+  let lastScanTime = 0;
+
+  let currentBatch = []; // {code, format, existedBefore}
+  let pendingDuplicateCode = null;
+
+  // Prefer native BarcodeDetector when available
+  const hasNativeDetector = "BarcodeDetector" in window;
+  let barcodeDetector = null;
+
+  // ====== STORAGE HELPERS ======
+  function getBatches() {
+    try {
+      return JSON.parse(localStorage.getItem("maizic_batches") || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function saveBatches(batches) {
+    localStorage.setItem("maizic_batches", JSON.stringify(batches));
+    updateBatchBadge();
+  }
+  function updateBatchBadge() {
+    const badge = document.getElementById("batchInfoBadge");
+    badge.textContent = \`Saved batches: \${getBatches().length}\`;
+  }
+
+  // ====== AUDIO ======
+  function playBeep(type) {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = isDuplicate ? 400 : 900;
       osc.connect(gain);
       gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(
-        0.001,
-        ctx.currentTime + 0.18
-      );
+
+      if (type === "success") osc.frequency.value = 900;
+      else if (type === "warning") osc.frequency.value = 350;
+      else osc.frequency.value = 600;
+
+      gain.gain.value = 0.15;
       osc.start();
-      osc.stop(ctx.currentTime + 0.18);
-    } catch (e) {
-      // ignore audio errors
+      setTimeout(() => { osc.stop(); ctx.close(); }, type === "warning" ? 250 : 120);
+    } catch {}
+  }
+
+  // ====== TOAST ======
+  let toastTimeout = null;
+  function showToast(msg, variant = "success") {
+    const el = document.getElementById("toast");
+    const txt = document.getElementById("toastText");
+    txt.textContent = msg;
+    el.className = "toast show toast-" + variant;
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => { el.className = "toast"; }, 2200);
+  }
+
+  // ====== OVERLAY ======
+  function flashOverlay(type) {
+    const success = document.getElementById("successOverlay");
+    const warning = document.getElementById("warningOverlay");
+    const target = type === "success" ? success : warning;
+    target.classList.add("show");
+    setTimeout(() => target.classList.remove("show"), 150);
+  }
+
+  // ====== BATCH RENDER ======
+  function renderCurrentBatch() {
+    const tbody = document.getElementById("batchTableBody");
+    tbody.innerHTML = "";
+
+    if (!currentBatch.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="4" class="empty-row">No barcodes scanned yet.</td></tr>';
+    } else {
+      currentBatch.forEach((item, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = \`
+          <td>\${i + 1}</td>
+          <td>\${item.code}</td>
+          <td>\${item.format || "-"}</td>
+          <td>\${
+            item.existedBefore
+              ? '<span class="tag tag-dup">Yes</span>'
+              : '<span class="tag">No</span>'
+          }</td>
+        \`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById("batchCount").textContent = String(currentBatch.length);
+    const finishBtn = document.getElementById("finishBatchBtn");
+    const hasName = document.getElementById("scannerName").value.trim().length > 0;
+    finishBtn.disabled = !(currentBatch.length && hasName);
+  }
+
+  function existsInCurrentBatch(code) {
+    return currentBatch.some((b) => b.code === code);
+  }
+  function existsInPreviousBatches(code) {
+    const batches = getBatches();
+    for (const batch of batches) {
+      if (batch.barcodes && batch.barcodes.some((b) => b.code === code)) return true;
+    }
+    return false;
+  }
+
+  // ====== SCAN HANDLER ======
+  function handleBarcodeScanned(code, format) {
+    const scannerName = document.getElementById("scannerName").value.trim();
+    if (!scannerName) {
+      showToast("Set scanner name before scanning.", "error");
+      playBeep("warning");
+      flashOverlay("warning");
+      return;
+    }
+
+    if (existsInCurrentBatch(code)) {
+      showToast("Duplicate in current batch – ignored.", "warning");
+      playBeep("warning");
+      flashOverlay("warning");
+      return;
+    }
+
+    const existedBefore = existsInPreviousBatches(code);
+
+    currentBatch.push({ code, format, existedBefore });
+    renderCurrentBatch();
+    playBeep("success");
+    flashOverlay("success");
+    showToast("Scanned: " + code, "success");
+
+    if (existedBefore) {
+      pendingDuplicateCode = code;
+      document.getElementById("duplicateModalText").textContent =
+        \`Barcode "\${code}" has been scanned in an earlier batch. Do you want to keep it in the current batch?\`;
+      document.getElementById("duplicateModalBackdrop").classList.add("show");
+      playBeep("warning");
     }
   }
 
-  const btnStart = document.getElementById("btnStart");
-  const btnStop  = document.getElementById("btnStop");
-  const btnShowDup = document.getElementById("btnShowDup");
-  const btnClear = document.getElementById("btnClear");
+  // ====== NATIVE BARCODEDETECTOR PATH (fast) ======
+  async function startNativeScanner() {
+    const video = document.getElementById("video");
 
-  const statusBox  = document.getElementById("statusBox");
-  const statusMain = document.getElementById("statusMain");
-  const statusCode = document.getElementById("statusCode");
-
-  const totalCountEl  = document.getElementById("totalCount");
-  const uniqueCountEl = document.getElementById("uniqueCount");
-  const dupCountEl    = document.getElementById("dupCount");
-
-  let isRunning = false;
-
-  // counts[code] = accepted scans:
-  // 0 or undefined => never scanned
-  // 1 => first time (unique)
-  // 2 => one duplicate (second time)
-  // >2 => we ignore further scans for this code
-  let counts = {};
-
-  let lastCode = null;
-  let lastTime = 0;
-  const SAME_CODE_DELAY = 800; // ms
-
-  const STORAGE_KEY = "maizic_1d_counts_v3";
-
-  function loadFromSession() {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
     try {
-      counts = JSON.parse(raw) || {};
-    } catch (e) {
-      counts = {};
-    }
-    updateCountsUI();
-  }
+      // prefer rear camera & decent resolution for better detection
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
 
-  function saveToSession() {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(counts));
-  }
+      video.srcObject = videoStream;
+      await video.play();
 
-  function computeTotals() {
-    const keys = Object.keys(counts);
-    const totalBarcodes = keys.length;
-    let unique = 0;
-    let dups = 0;
-    keys.forEach(code => {
-      const c = counts[code];
-      if (c === 1) unique++;
-      else if (c >= 2) dups++;
-    });
-    return { totalBarcodes, unique, dups };
-  }
+      // Init detector with common formats (keeps it fast)
+      const formats = [
+        "code_128",
+        "code_39",
+        "code_93",
+        "ean_13",
+        "ean_8",
+        "upc_a",
+        "upc_e",
+        "itf",
+        "qr_code"
+      ].filter(f => BarcodeDetector.getSupportedFormats().includes(f));
 
-  function updateCountsUI() {
-    const { totalBarcodes, unique, dups } = computeTotals();
-    totalCountEl.textContent  = totalBarcodes;
-    uniqueCountEl.textContent = unique;
-    dupCountEl.textContent    = dups;
-  }
+      barcodeDetector = new BarcodeDetector({ formats });
 
-  function setStatusIdle() {
-    statusBox.className = "status status-idle";
-    statusMain.textContent = "Scanner idle";
-    statusCode.textContent = "No scan yet.";
-  }
+      const scanLoop = async () => {
+        if (!barcodeDetector) return;
 
-  function setStatus(code, isDuplicate) {
-    statusBox.className = "status " + (isDuplicate ? "status-dup" : "status-ok");
-    statusMain.textContent = isDuplicate ? "Duplicate barcode" : "New barcode";
-    statusCode.textContent = code || "—";
-  }
+        try {
+          const barcodes = await barcodeDetector.detect(video);
+          if (barcodes && barcodes.length > 0) {
+            const first = barcodes[0];
+            const value = first.rawValue;
+            const now = Date.now();
 
-  function onDetected(result) {
-    if (!result || !result.codeResult || !result.codeResult.code) return;
+            // shorter lock (350ms) = faster new scans but still avoids noise
+            if (
+              processingLock &&
+              value === lastScannedValue &&
+              now - lastScanTime < 350
+            ) {
+              // ignore same frame duplicate
+            } else {
+              processingLock = true;
+              lastScannedValue = value;
+              lastScanTime = now;
 
-    const now = Date.now();
-    const code = result.codeResult.code.trim();
+              handleBarcodeScanned(value, first.format || "native");
 
-    // debounce same code in continuous frames
-    if (lastCode === code && now - lastTime < SAME_CODE_DELAY) {
-      return;
-    }
-    lastCode = code;
-    lastTime = now;
-
-    const prev = counts[code] || 0;
-
-    // already counted duplicate once -> ignore extra
-    if (prev >= 2) {
-      return;
-    }
-
-    if (prev === 0) {
-      // first time -> unique
-      counts[code] = 1;
-      saveToSession();
-      updateCountsUI();
-      setStatus(code, false);
-      playBeep(false);
-      return;
-    }
-
-    if (prev === 1) {
-      // second time -> first duplicate
-      counts[code] = 2;
-      saveToSession();
-      updateCountsUI();
-      setStatus(code, true);
-      playBeep(true);
-      return;
-    }
-  }
-
-  function startScanner() {
-    if (isRunning) return;
-    isRunning = true;
-    btnStart.disabled = true;
-    btnStop.disabled  = false;
-
-    // remove old listeners before init
-    try {
-      Quagga.offDetected(onDetected);
-    } catch (e) {}
-
-    Quagga.init(
-      {
-        inputStream: {
-          type: "LiveStream",
-          target: document.querySelector("#interactive"),
-          constraints: {
-            facingMode: "environment",
-            width:  { ideal: 1280 },
-            height: { ideal: 720 },
-            aspectRatio: { ideal: 1.777 },
-            // Hint to browser for continuous / fast focus (not all browsers obey)
-            advanced: [{ focusMode: "continuous" }]
+              setTimeout(() => { processingLock = false; }, 250);
+            }
           }
-        },
-        decoder: {
-          readers: [
-            // ONLY 1D readers that exist in Quagga2
-            "code_128_reader",
-            "code_39_reader",
-            "ean_reader",
-            "ean_8_reader",
-            "upc_reader",
-            "upc_e_reader",
-            "codabar_reader"
-          ]
-        },
-        locate: true,
-        numOfWorkers: navigator.hardwareConcurrency
-          ? Math.min(4, navigator.hardwareConcurrency)
-          : 2
-      },
-      function (err) {
-        if (err) {
-          console.error(err);
-          alert("Error initializing scanner: " + err);
-          isRunning = false;
-          btnStart.disabled = false;
-          btnStop.disabled = true;
-          return;
+        } catch (e) {
+          console.error("BarcodeDetector error:", e);
         }
-        Quagga.start();
-        statusBox.className = "status status-idle";
-        statusMain.textContent = "Scanning…";
-        statusCode.textContent = "Point camera at 1D barcode.";
-        Quagga.onDetected(onDetected);
-      }
-    );
-  }
 
-  function stopScanner() {
-    if (!isRunning) return;
-    isRunning = false;
-    btnStart.disabled = false;
-    btnStop.disabled  = true;
-    try {
-      Quagga.stop();
-      Quagga.offDetected(onDetected);
+        rafId = requestAnimationFrame(scanLoop);
+      };
+
+      rafId = requestAnimationFrame(scanLoop);
     } catch (e) {
-      console.warn("Error stopping Quagga", e);
+      console.error("Native scanner failed, falling back to ZXing:", e);
+      showToast("Native scanner not available, using fallback.", "warning");
+      // fallback to ZXing
+      startZXingScanner();
     }
-    setStatusIdle();
   }
 
-  function showDuplicateCodes() {
-    const dups = Object.keys(counts).filter(code => counts[code] >= 2);
-    if (!dups.length) {
-      alert("No duplicate barcodes yet.");
+  function stopNativeScanner() {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+    const video = document.getElementById("video");
+    if (video) {
+      video.srcObject = null;
+    }
+    barcodeDetector = null;
+  }
+
+  // ====== ZXING PATH (fallback) ======
+  async function startZXingScanner() {
+    if (codeReader) return;
+    codeReader = new ZXing.BrowserMultiFormatReader();
+
+    try {
+      await codeReader.decodeFromVideoDevice(null, "video", (result, err) => {
+        if (result) {
+          const now = Date.now();
+          const value = result.getText();
+          if (
+            processingLock &&
+            value === lastScannedValue &&
+            now - lastScanTime < 400
+          ) {
+            return;
+          }
+
+          processingLock = true;
+          lastScannedValue = value;
+          lastScanTime = now;
+
+          handleBarcodeScanned(
+            value,
+            result.getBarcodeFormat && result.getBarcodeFormat()
+          );
+
+          setTimeout(() => { processingLock = false; }, 300);
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      showToast("Could not start camera. Check permissions.", "error");
+      if (codeReader) {
+        codeReader.reset();
+        codeReader = null;
+      }
+    }
+  }
+
+  function stopZXingScanner() {
+    if (codeReader) {
+      codeReader.reset();
+      codeReader = null;
+    }
+  }
+
+  // ====== PUBLIC CAMERA FUNCTIONS (used by buttons) ======
+  async function startCamera() {
+    document.getElementById("startCameraBtn").disabled = true;
+    document.getElementById("stopCameraBtn").disabled = false;
+
+    if (hasNativeDetector && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      await startNativeScanner();
+    } else {
+      await startZXingScanner();
+    }
+  }
+
+  function stopCamera() {
+    if (hasNativeDetector) {
+      stopNativeScanner();
+    }
+    stopZXingScanner();
+
+    document.getElementById("startCameraBtn").disabled = false;
+    document.getElementById("stopCameraBtn").disabled = true;
+  }
+
+  // ====== FINISH BATCH ======
+  function openFinishModal() {
+    if (!currentBatch.length) {
+      showToast("Scan at least one barcode.", "warning");
       return;
     }
-    const lines = dups.map(code => `${code} (scan count: ${counts[code]})`);
-    alert("Duplicate barcodes:\n\n" + lines.join("\n"));
+    if (!document.getElementById("scannerName").value.trim()) {
+      showToast("Scanner name is required.", "warning");
+      return;
+    }
+    document.getElementById("partnerSelect").value = "";
+    document.getElementById("finishModalBackdrop").classList.add("show");
   }
 
-  function clearAll() {
-    if (!confirm("Clear all scanned barcodes for this session?")) return;
-    counts = {};
-    saveToSession();
-    updateCountsUI();
-    setStatusIdle();
+  function saveCurrentBatch() {
+    const partner = document.getElementById("partnerSelect").value;
+    const scannerName = document.getElementById("scannerName").value.trim();
+    if (!partner) {
+      showToast("Select a delivery partner.", "warning");
+      return;
+    }
+
+    const batches = getBatches();
+    const newBatch = {
+      id: "batch_" + Date.now(),
+      scannerName,
+      partner,
+      createdAt: new Date().toISOString(),
+      barcodes: currentBatch,
+    };
+    batches.push(newBatch);
+    saveBatches(batches);
+
+    currentBatch = [];
+    renderCurrentBatch();
+    document.getElementById("finishModalBackdrop").classList.remove("show");
+    showToast("Batch saved successfully.", "success");
+    playBeep("success");
   }
 
-  btnStart.addEventListener("click", startScanner);
-  btnStop.addEventListener("click",  stopScanner);
-  btnShowDup.addEventListener("click", showDuplicateCodes);
-  btnClear.addEventListener("click",   clearAll);
+  // ====== EVENTS ======
+  document.getElementById("startCameraBtn").addEventListener("click", startCamera);
+  document.getElementById("stopCameraBtn").addEventListener("click", stopCamera);
+  document.getElementById("finishBatchBtn").addEventListener("click", openFinishModal);
 
-  // init
-  loadFromSession();
-  setStatusIdle();
+  document.getElementById("finishCancelBtn").addEventListener("click", () => {
+    document.getElementById("finishModalBackdrop").classList.remove("show");
+  });
+  document.getElementById("finishConfirmBtn").addEventListener("click", saveCurrentBatch);
+
+  document.getElementById("duplicateCancelBtn").addEventListener("click", () => {
+    if (pendingDuplicateCode) {
+      currentBatch = currentBatch.filter((b) => b.code !== pendingDuplicateCode);
+      renderCurrentBatch();
+    }
+    pendingDuplicateCode = null;
+    document.getElementById("duplicateModalBackdrop").classList.remove("show");
+    showToast("Duplicate removed from current batch.", "warning");
+  });
+  document.getElementById("duplicateAddBtn").addEventListener("click", () => {
+    pendingDuplicateCode = null;
+    document.getElementById("duplicateModalBackdrop").classList.remove("show");
+    showToast("Duplicate kept in current batch.", "success");
+  });
+
+  document.getElementById("scannerName").addEventListener("input", (e) => {
+    localStorage.setItem("maizic_scanner_name", e.target.value.trim());
+    renderCurrentBatch();
+  });
+
+  // ====== INIT ======
+  (function init() {
+    const savedName = localStorage.getItem("maizic_scanner_name");
+    if (savedName) document.getElementById("scannerName").value = savedName;
+    updateBatchBadge();
+    renderCurrentBatch();
+  })();
 </script>
 </body>
 </html>
