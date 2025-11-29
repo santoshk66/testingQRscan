@@ -478,15 +478,42 @@
       video.srcObject = videoStream;
       await video.play();
 
-      // Try to hint continuous focus if supported
+      // ===== FOCUS TUNING (BEST-EFFORT) =====
       const tracks = videoStream.getVideoTracks();
-      if (tracks[0] && tracks[0].applyConstraints) {
-        tracks[0].applyConstraints({
-          advanced: [{ focusMode: "continuous" }]
-        }).catch(() => {});
+      if (tracks[0] && tracks[0].getCapabilities) {
+        try {
+          const caps = tracks[0].getCapabilities();
+          let focusModeConstraint = null;
+
+          if (caps.focusMode && caps.focusMode.length) {
+            // Prefer continuous > single-shot > auto
+            const preferredOrder = ["continuous", "single-shot", "auto"];
+            const supported = caps.focusMode;
+            const best = preferredOrder.find(m => supported.includes(m)) || supported[0];
+            focusModeConstraint = best;
+          }
+
+          const advanced = [];
+          if (focusModeConstraint) {
+            advanced.push({ focusMode: focusModeConstraint });
+          }
+
+          // (Optional) small zoom in if supported – helps scanner read more clearly
+          if (caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number") {
+            const midZoom = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.3;
+            advanced.push({ zoom: midZoom });
+          }
+
+          if (advanced.length) {
+            await tracks[0].applyConstraints({ advanced });
+          }
+        } catch (e) {
+          console.warn("Focus/zoom constraints not applied:", e);
+        }
       }
 
-      const formats = [
+      // Build supported formats list – ONLY 1D codes now
+      const wantedFormats = [
         "code_128",
         "code_39",
         "code_93",
@@ -494,9 +521,12 @@
         "ean_8",
         "upc_a",
         "upc_e",
-        "itf",
-        "qr_code"  // keep if you also want QR; remove if you only want 1D
-      ].filter(f => BarcodeDetector.getSupportedFormats().includes(f));
+        "itf"
+        // NO qr_code – only 1D barcodes as per requirement
+      ];
+
+      const supported = BarcodeDetector.getSupportedFormats();
+      const formats = wantedFormats.filter(f => supported.includes(f));
 
       barcodeDetector = new BarcodeDetector({ formats });
 
