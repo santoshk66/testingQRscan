@@ -464,7 +464,7 @@
     const video = document.getElementById("video");
 
     try {
-      // Prefer rear camera & decent resolution and try for continuous focus (browser-dependent)
+      // Prefer rear camera & decent resolution
       videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
@@ -478,37 +478,39 @@
       video.srcObject = videoStream;
       await video.play();
 
-      // ===== FOCUS TUNING (BEST-EFFORT) =====
+      // ===== IMPROVED AUTO FOCUS (NO ZOOM / NO FLASH) =====
       const tracks = videoStream.getVideoTracks();
-      if (tracks[0] && tracks[0].getCapabilities) {
+      const track = tracks[0];
+
+      if (track && track.getCapabilities && track.applyConstraints) {
         try {
-          const caps = tracks[0].getCapabilities();
+          const caps = track.getCapabilities();
           let focusModeConstraint = null;
 
+          // Check which focus modes are supported
           if (caps.focusMode && caps.focusMode.length) {
-            // Prefer continuous > single-shot > auto
-            const preferredOrder = ["continuous", "single-shot", "auto"];
+            const preferred = ["continuous", "single-shot", "auto"];
             const supported = caps.focusMode;
-            const best = preferredOrder.find(m => supported.includes(m)) || supported[0];
+            const best = preferred.find(m => supported.includes(m)) || supported[0];
             focusModeConstraint = best;
           }
 
-          const advanced = [];
+          const advanced = {};
+
+          // Only set focusMode – we do NOT touch zoom / torch
           if (focusModeConstraint) {
-            advanced.push({ focusMode: focusModeConstraint });
+            advanced.focusMode = focusModeConstraint;
           }
 
-
-          if (advanced.length) {
-            await tracks[0].applyConstraints({ advanced });
+          if (Object.keys(advanced).length > 0) {
+            await track.applyConstraints({ advanced: [advanced] });
           }
         } catch (e) {
-          console.warn("Focus/zoom constraints not applied:", e);
+          console.warn("Focus constraints not applied:", e);
         }
       }
 
-      // Build supported formats list – ONLY 1D codes now
-      const wantedFormats = [
+      const formats = [
         "code_128",
         "code_39",
         "code_93",
@@ -516,12 +518,9 @@
         "ean_8",
         "upc_a",
         "upc_e",
-        "itf"
-        // NO qr_code – only 1D barcodes as per requirement
-      ];
-
-      const supported = BarcodeDetector.getSupportedFormats();
-      const formats = wantedFormats.filter(f => supported.includes(f));
+        "itf",
+        "qr_code"  // as in your original: keeping QR + 1D
+      ].filter(f => BarcodeDetector.getSupportedFormats().includes(f));
 
       barcodeDetector = new BarcodeDetector({ formats });
 
