@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Maizic Camera Barcode Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Quagga2 -->
+  <script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+    }
+    .app {
+      width: 100%;
+      max-width: 480px;
+    }
+    h1 {
+      font-size: 20px;
+      margin: 0 0 8px;
+      text-align: center;
+    }
+    .sub {
+      font-size: 13px;
+      opacity: 0.8;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    #camera {
+      width: 100%;
+      height: 260px;
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    #camera video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .overlay-box {
+      position: absolute;
+      inset: 20%;
+      border: 2px solid rgba(248, 250, 252, 0.7);
+      border-radius: 8px;
+      pointer-events: none;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 0;
+      border-radius: 999px;
+      border: none;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.05s ease, box-shadow 0.05s ease, opacity 0.15s;
+    }
+    .btn-start {
+      background: #22c55e;
+      color: #022c22;
+      box-shadow: 0 6px 12px rgba(34, 197, 94, 0.4);
+    }
+    .btn-stop {
+      background: #4b5563;
+      color: #e5e7eb;
+      box-shadow: 0 6px 12px rgba(15, 23, 42, 0.7);
+    }
+    .btn:active {
+      transform: translateY(1px);
+      box-shadow: none;
+    }
+    .btn[disabled] {
+      opacity: 0.45;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .status-box {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .status-idle {
+      background: rgba(15, 23, 42, 0.9);
+      color: #9ca3af;
+      border: 1px dashed #374151;
+    }
+    .status-unique {
+      background: rgba(22, 163, 74, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(22, 163, 74, 0.7);
+    }
+    .status-duplicate {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.7);
+    }
+
+    .status-code {
+      font-size: 14px;
+      margin-top: 4px;
+      word-break: break-all;
+      opacity: 0.9;
+    }
+
+    .counts {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #9ca3af;
+    }
+
+    .list-box {
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #111827;
+      max-height: 260px;
+      overflow: auto;
+      font-size: 12px;
+    }
+    .list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .list-header span {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .list-header button {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+    }
+    .list-header button:hover {
+      background: #111827;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 4px 6px;
+      text-align: left;
+    }
+    th {
+      border-bottom: 1px solid #1f2933;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+    }
+    td {
+      border-bottom: 1px dashed #111827;
+      font-size: 11px;
+      color: #e5e7eb;
+    }
+    .tag-unique {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(22, 163, 74, 0.15);
+      color: #4ade80;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .tag-dup {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      font-size: 10px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Maizic Camera Barcode Scanner</h1>
+    <p class="sub">Use your camera to scan barcodes. Unique scans turn <b>green</b>, duplicates turn <b>red</b>.</p>
+
+    <div id="camera">
+      <div id="interactive" class="viewport"></div>
+      <div class="overlay-box"></div>
+    </div>
+
+    <div class="controls">
+      <button id="btnStart" class="btn btn-start">Start Camera</button>
+      <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
+    </div>
+
+    <div id="status" class="status-box status-idle">
+      Scanner idle
+      <div class="status-code" id="statusCode">No code scanned yet.</div>
+    </div>
+
+    <div class="counts">
+      <div>Total: <b><span id="totalCount">0</span></b></div>
+      <div>Unique: <b><span id="uniqueCount">0</span></b></div>
+      <div>Duplicates: <b><span id="duplicateCount">0</span></b></div>
+    </div>
+
+    <div class="list-box">
+      <div class="list-header">
+        <span>Scanned Codes (session)</span>
+        <button id="btnClear">Clear</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Code</th>
+            <th>Type</th>
+            <th>Time</th>
+            <th>Flag</th>
+          </tr>
+        </thead>
+        <tbody id="listBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Simple beep ----------
+    function playBeep(isDuplicate) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        osc.type = "square";
+        // Higher tone for unique, lower for duplicate
+        osc.frequency.value = isDuplicate ? 400 : 800;
+
+        osc.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        gainNode.gain.setValueAtTime(0.15, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      } catch (e) {
+        // ignore audio errors
+      }
+    }
+
+    const btnStart = document.getElementById("btnStart");
+    const btnStop = document.getElementById("btnStop");
+    const statusBox = document.getElementById("status");
+    const statusCode = document.getElementById("statusCode");
+    const totalCountEl = document.getElementById("totalCount");
+    const uniqueCountEl = document.getElementById("uniqueCount");
+    const duplicateCountEl = document.getElementById("duplicateCount");
+    const listBody = document.getElementById("listBody");
+    const btnClear = document.getElementById("btnClear");
+
+    let isRunning = false;
+    let scans = [];           // {code, format, time, isDuplicate}
+    let scanSet = new Set();  // for quick duplicate check
+    let totalCount = 0;
+    let uniqueCount = 0;
+    let duplicateCount = 0;
+
+    let lastCode = null;
+    let lastTime = 0; // ms
+    const SAME_CODE_DELAY = 800; // ignore same code within 0.8s
+
+    // Load previous session scans
+    function loadFromSession() {
+      const raw = sessionStorage.getItem("maizic_barcode_scans");
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          scans = data;
+          scanSet = new Set();
+          totalCount = scans.length;
+          uniqueCount = 0;
+          duplicateCount = 0;
+          scans.forEach(s => {
+            if (!scanSet.has(s.code)) {
+              scanSet.add(s.code);
+              uniqueCount++;
+            } else {
+              duplicateCount++;
+            }
+          });
+          renderCounts();
+          renderList();
+        }
+      } catch (e) {
+        console.error("Failed to parse session data", e);
+      }
+    }
+
+    function saveToSession() {
+      sessionStorage.setItem("maizic_barcode_scans", JSON.stringify(scans));
+    }
+
+    function renderCounts() {
+      totalCountEl.textContent = totalCount;
+      uniqueCountEl.textContent = uniqueCount;
+      duplicateCountEl.textContent = duplicateCount;
+    }
+
+    function renderList() {
+      listBody.innerHTML = "";
+      scans.forEach((s, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${s.code}</td>
+          <td>${s.format}</td>
+          <td>${s.time}</td>
+          <td>
+            ${s.isDuplicate
+              ? '<span class="tag-dup">DUP</span>'
+              : '<span class="tag-unique">NEW</span>'}
+          </td>
+        `;
+        listBody.appendChild(tr);
+      });
+    }
+
+    function setStatusIdle() {
+      statusBox.className = "status-box status-idle";
+      statusBox.firstChild && (statusBox.firstChild.textContent = "Scanner idle");
+      statusCode.textContent = "No code scanned yet.";
+    }
+
+    function setStatus(code, isDuplicate) {
+      statusBox.className = "status-box " + (isDuplicate ? "status-duplicate" : "status-unique");
+      statusBox.firstChild && (statusBox.firstChild.textContent =
+        isDuplicate ? "Duplicate Scan" : "Unique Scan");
+      statusCode.textContent = code || "—";
+    }
+
+    function onDetected(result) {
+      if (!result || !result.codeResult || !result.codeResult.code) return;
+
+      const now = Date.now();
+      const code = result.codeResult.code.trim();
+      const format = result.codeResult.format || "N/A";
+
+      // Debounce same code many times in a row
+      if (lastCode === code && now - lastTime < SAME_CODE_DELAY) {
+        return;
+      }
+      lastCode = code;
+      lastTime = now;
+
+      totalCount++;
+      const isDuplicate = scanSet.has(code);
+      if (isDuplicate) {
+        duplicateCount++;
+      } else {
+        uniqueCount++;
+        scanSet.add(code);
+      }
+
+      const timeStr = new Date().toLocaleTimeString();
+      scans.push({ code, format, time: timeStr, isDuplicate });
+
+      renderCounts();
+      renderList();
+      saveToSession();
+      setStatus(code, isDuplicate);
+      playBeep(isDuplicate);
+    }
+
+    function startScanner() {
+      if (isRunning) return;
+      isRunning = true;
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            target: document.querySelector("#interactive"),
+            constraints: {
+              facingMode: "environment", // back camera if available
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          },
+          decoder: {
+            readers: [
+              "code_128_reader",
+              "ean_reader",
+              "ean_8_reader",
+              "upc_reader",
+              "upc_e_reader",
+              "code_39_reader",
+              "itf_reader"
+            ]
+          },
+          locate: true,
+          numOfWorkers: navigator.hardwareConcurrency ? Math.min(4, navigator.hardwareConcurrency) : 2
+        },
+        function (err) {
+          if (err) {
+            console.error(err);
+            alert("Error initializing camera: " + err);
+            isRunning = false;
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+            return;
+          }
+          Quagga.start();
+          statusBox.className = "status-box status-idle";
+          statusBox.firstChild && (statusBox.firstChild.textContent = "Scanning…");
+          statusCode.textContent = "Point camera at a barcode.";
+        }
+      );
+
+      Quagga.onDetected(onDetected);
+    }
+
+    function stopScanner() {
+      if (!isRunning) return;
+      isRunning = false;
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      try {
+        Quagga.stop();
+        Quagga.offDetected(onDetected);
+      } catch (e) {
+        console.warn("Error stopping quagga", e);
+      }
+      setStatusIdle();
+    }
+
+    btnStart.addEventListener("click", startScanner);
+    btnStop.addEventListener("click", stopScanner);
+
+    btnClear.addEventListener("click", () => {
+      if (!confirm("Clear scanned data for this session?")) return;
+      scans = [];
+      scanSet = new Set();
+      totalCount = 0;
+      uniqueCount = 0;
+      duplicateCount = 0;
+      renderCounts();
+      renderList();
+      saveToSession();
+      setStatusIdle();
+    });
+
+    window.addEventListener("beforeunload", () => {
+      // optional: keep session data; we already saved on each scan
+    });
+
+    // Init from session storage
+    loadFromSession();
+    setStatusIdle();
+  </script>
+</body>
+</html>
